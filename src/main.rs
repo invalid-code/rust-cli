@@ -1,8 +1,8 @@
 use std::env;
 use std::io::{stdin, Read, Write};
 use std::net::{Shutdown, TcpListener, TcpStream};
+use std::process::Command;
 use std::str::from_utf8;
-// use std::str::from_utf8;
 use std::thread;
 
 fn handle_client(mut stream: TcpStream) {
@@ -11,6 +11,7 @@ fn handle_client(mut stream: TcpStream) {
         Ok(size) => {
             // echo everything!
             stream.write(&data[0..size]).unwrap();
+            Command::new("ls");
             true
         }
         Err(_) => {
@@ -55,26 +56,43 @@ fn client(addr: &str) {
 
             let mut cmd = String::new();
 
-            stdin().read_line(&mut cmd).expect("failed to read stdin");
-            // let msg = b"Hello!";
+            loop {
+                stdin().read_line(&mut cmd).expect("failed to read stdin");
 
+                if cmd.trim() != "exit" {
+                    break;
+                }
+
+                stream.write(cmd.trim().as_bytes()).unwrap();
+                println!("sent command...\nawaiting response");
+
+                let mut data = [0 as u8; 6];
+                match stream.read(&mut data) {
+                    Ok(_) => {
+                        let text = from_utf8(&data).unwrap();
+                        println!("server response: {}", text);
+                    }
+                    Err(e) => eprintln!("{}", e),
+                }
+            }
+            // let msg = b"Hello!";
             // stream.write(msg).unwrap();
             // println!("Sent Hello, awaiting reply...");
 
-            let mut data = [0 as u8; 6]; // using 6 byte buffer
-            match stream.read_exact(&mut data) {
-                Ok(_) => {
-                    // if &data == msg {
-                    //     println!("Reply is ok!");
-                    // } else {
-                    //     let text = from_utf8(&data).unwrap();
-                    //     println!("Unexpected reply: {}", text);
-                    // }
-                }
-                Err(e) => {
-                    println!("Failed to receive data: {}", e);
-                }
-            }
+            // let mut data = [0 as u8; 6]; // using 6 byte buffer
+            // match stream.read_exact(&mut data) {
+            //     Ok(_) => {
+            //         // if &data == msg {
+            //         //     println!("Reply is ok!");
+            //         // } else {
+            //         //     let text = from_utf8(&data).unwrap();
+            //         //     println!("Unexpected reply: {}", text);
+            //         // }
+            //     }
+            //     Err(e) => {
+            //         println!("Failed to receive data: {}", e);
+            //     }
+            // }
         }
         Err(e) => {
             println!("Failed to connect: {}", e);

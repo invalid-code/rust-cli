@@ -1,1 +1,1 @@
-goal: to use the services of websites inside terminal
+implementation of netcat using rust
