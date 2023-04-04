@@ -1,112 +1,96 @@
-use std::env;
-use std::io::{stdin, Read, Write};
-use std::net::{Shutdown, TcpListener, TcpStream};
-use std::process::Command;
+use clap::{Parser, ValueEnum};
+use serde::{Deserialize, Serialize};
+use serde_json::to_string;
+use std::fs;
+use std::path::Path;
 use std::str::from_utf8;
-use std::thread;
 
-fn handle_client(mut stream: TcpStream) {
-    let mut data = [0 as u8; 50]; // using 50 byte buffer
-    while match stream.read(&mut data) {
-        Ok(size) => {
-            // echo everything!
-            stream.write(&data[0..size]).unwrap();
-            Command::new("ls");
-            true
-        }
-        Err(_) => {
-            println!(
-                "An error occurred, terminating connection with {}",
-                stream.peer_addr().unwrap()
-            );
-            stream.shutdown(Shutdown::Both).unwrap();
-            false
-        }
-    } {}
+#[derive(Clone, ValueEnum, Debug, Default)]
+enum Command {
+    #[default]
+    Add,
+    List,
+    Show,
+    Remove,
 }
 
-fn server(port: &str) {
-    let listening_addr = format!("0.0.0.0:{}", port);
-    let listener = TcpListener::bind(listening_addr).unwrap();
-    // accept connections and process them, spawning a new thread for each one
-    println!("Server listening on port {}", port);
-    for stream in listener.incoming() {
-        match stream {
-            Ok(stream) => {
-                println!("New connection: {}", stream.peer_addr().unwrap());
-                thread::spawn(move || {
-                    // connection succeeded
-                    handle_client(stream)
-                });
-            }
-            Err(e) => {
-                println!("Error: {}", e);
-                /* connection failed */
-            }
-        }
-    }
-    // close the socket server
-    drop(listener);
+#[derive(Parser, Debug, Default)]
+struct Cli {
+    command: Command,
+    #[clap(default_value_t = String::new())]
+    value: String,
+    #[clap(short, long)]
+    key: Option<i32>,
 }
 
-fn client(addr: &str) {
-    match TcpStream::connect(addr) {
-        Ok(mut stream) => {
-            println!("Successfully connected to server in port 2000");
+#[derive(Debug, Serialize, Deserialize)]
+struct Note {
+    key: i32,
+    body: String,
+}
 
-            let mut cmd = String::new();
+fn add(counter: &mut i32, args: Cli, path: &str, mut notes: Vec<Note>) {
+    counter += 1;
+    let new_note = Note {
+        key: counter,
+        body: args.value,
+    };
+    println!("{:?}", &new_note);
+    notes.push(new_note);
+    fs::write(path, &to_string(&notes).unwrap()).unwrap();
+}
 
-            loop {
-                stdin().read_line(&mut cmd).expect("failed to read stdin");
+fn list(notes: Vec<Note>) -> () {
+    println!("Notes:");
+    for note in notes {
+        println!("  {}", note.body);
+    }
+}
 
-                if cmd.trim() != "exit" {
-                    break;
-                }
-
-                stream.write(cmd.trim().as_bytes()).unwrap();
-                println!("sent command...\nawaiting response");
-
-                let mut data = [0 as u8; 6];
-                match stream.read(&mut data) {
-                    Ok(_) => {
-                        let text = from_utf8(&data).unwrap();
-                        println!("server response: {}", text);
-                    }
-                    Err(e) => eprintln!("{}", e),
+fn show(notes: Vec<Note>, key: i32, args: Cli) {
+    match args.key {
+        Some(key) => {
+            for note in notes {
+                if note.key == key {
+                    println!("{}", note.body);
                 }
             }
-            // let msg = b"Hello!";
-            // stream.write(msg).unwrap();
-            // println!("Sent Hello, awaiting reply...");
-
-            // let mut data = [0 as u8; 6]; // using 6 byte buffer
-            // match stream.read_exact(&mut data) {
-            //     Ok(_) => {
-            //         // if &data == msg {
-            //         //     println!("Reply is ok!");
-            //         // } else {
-            //         //     let text = from_utf8(&data).unwrap();
-            //         //     println!("Unexpected reply: {}", text);
-            //         // }
-            //     }
-            //     Err(e) => {
-            //         println!("Failed to receive data: {}", e);
-            //     }
-            // }
         }
-        Err(e) => {
-            println!("Failed to connect: {}", e);
-        }
+        None => println!("Pls input a key"),
     }
-    println!("Terminated.");
 }
 
 fn main() {
-    let args: Vec<String> = env::args().collect();
-    match args.len() {
-        1 => println!("help message"),
-        2 => client(&args[1]),
-        3 => server(&args[2]),
-        _ => println!("..."),
+    const PATH: &str = "notes.json";
+    if !Path::new(PATH).exists() {
+        fs::write(PATH, b"[]").unwrap();
+    }
+    let args = Cli::parse();
+    match fs::read(PATH) {
+        Ok(y) => {
+            let notes_str = from_utf8(&y).expect("Error parsing file");
+            let mut notes: Vec<Note> = serde_json::from_str(notes_str).unwrap();
+            let mut counter = notes[notes.len() - 1].key;
+            match &args.command {
+                Command::Add => add(&mut counter, args, PATH, notes),
+                Command::List => list(notes),
+                Command::Show => show(notes, counter, args),
+                Command::Remove => match args.key {
+                    Some(key) => {
+                        let mut to_remove: Option<usize> = None;
+                        for (note_index, note) in notes.iter().enumerate() {
+                            if note.key == key {
+                                to_remove = Some(note_index);
+                            }
+                        }
+                        if let Some(remove) = to_remove {
+                            notes.remove(remove);
+                        }
+                    }
+                    None => println!("Pls input a key"),
+                },
+            }
+        }
+        Err(e) => eprintln!("{}", e),
     }
 }

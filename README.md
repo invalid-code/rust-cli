@@ -1,1 +1,1 @@
-implementation of netcat using rust
+note app written in rust
